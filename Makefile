@@ -1,4 +1,4 @@
-CC ?= clang
+CC ?= gcc
 
 SERVER := server
 SERVER_SRC := server.c
@@ -15,10 +15,10 @@ all: build
 build: $(SERVER) $(CLIENT)
 
 $(SERVER): $(SERVER_SRC)
-	$(CC) $(CFLAGS) $(LIBS) -o $@ $<
+	$(CC) $(CFLAGS) -o $@ $< $(LIBS)
 
 $(CLIENT): $(CLIENT_SRC)
-	$(CC) $(CFLAGS) $(LIBS) -o $@ $<
+	$(CC) $(CFLAGS) -o $@ $< $(LIBS)
 
 .PHONY: clean
 clean:
