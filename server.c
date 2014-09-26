@@ -13,6 +13,7 @@
 #include <pthread.h>
 
 #include <gst/gst.h>
+#include <gst/gstcaps.h>
 #include <gst/net/gstnet.h>
 
 #define DATA_GROUP	"224.5.0.100"
@@ -23,34 +24,11 @@
 #define ANNC_PORT	16992
 
 GstElement *pipeline;
-GstElement *src, *demux, *pay, *sink;
+GstElement *src, *filt, *rate, *filt2, *enc, *pay, *sink;
 
 GstNetTimeProvider *timeprovider;
 pthread_t time_thread;
 uint64_t basetime;
-
-static void usage(void)
-{
-	printf("usage: server <file>\n");
-	exit(EXIT_FAILURE);
-}
-
-static void on_pad_added (GstElement *element, GstPad *new_pad)
-{
-	GstCaps *new_pad_caps;
-	GstStructure *new_pad_struct;
-	const gchar *new_pad_type;
-	(void) src;
-
-	new_pad_caps = gst_pad_query_caps(new_pad, NULL);
-	new_pad_struct = gst_caps_get_structure(new_pad_caps, 0);
-	new_pad_type = gst_structure_get_name(new_pad_struct);
-
-	if (g_str_has_prefix(new_pad_type, "video/x-h264"))
-	{
-		gst_element_link(demux, pay);
-	}
-}
 
 static void *announce_thread(void *param)
 {
@@ -117,19 +95,25 @@ int main(int argc, char **argv)
 	bool quit = false;
 	GstMessage* msg;
 
-	if (argc != 2)
-		usage();
-
 	gst_init(NULL, NULL);
 
 	/* Create elements */
-	src   = gst_element_factory_make("filesrc", "src");
-	demux = gst_element_factory_make("qtdemux", "demux");
-	pay   = gst_element_factory_make("rtph264pay", "pay");
-	sink  = gst_element_factory_make("udpsink", "sink");
+	src   = gst_element_factory_make("videotestsrc", NULL);
+	filt  = gst_element_factory_make("capsfilter", NULL);
+	rate  = gst_element_factory_make("videorate", NULL);
+	filt2 = gst_element_factory_make("capsfilter", NULL);
+	enc   = gst_element_factory_make("x264enc", NULL);
+	pay   = gst_element_factory_make("rtph264pay", NULL);
+	sink  = gst_element_factory_make("udpsink", NULL);
 
 	/* Setup elements */
-	g_object_set(src, "location", argv[1], NULL);
+	g_object_set(src, "pattern", 12, NULL);
+
+	g_object_set(filt, "caps", gst_caps_from_string("video/x-raw,width=640,height=480,framerate=1/1"), NULL);
+
+	g_object_set(filt2, "caps", gst_caps_from_string("video/x-raw,framerate=25/1"), NULL);
+
+	g_object_set(enc, "bitrate", 1024, "key-int-max", 24, NULL);
 
 	g_object_set(pay, "pt", 96, NULL);
 	g_object_set(pay, "config-interval", 1, NULL);
@@ -137,16 +121,12 @@ int main(int argc, char **argv)
 	g_object_set(sink, "host", DATA_GROUP, NULL);
 	g_object_set(sink, "auto-multicast", true, NULL);
 
-	/* Signal handlers */
-	g_signal_connect(demux, "pad-added", G_CALLBACK(on_pad_added), NULL);
-
 	/* Build pipelines */
 	pipeline = gst_pipeline_new("test");
 
-	gst_bin_add_many(GST_BIN(pipeline), src, demux, pay, sink, NULL);
+	gst_bin_add_many(GST_BIN(pipeline), src, filt, rate, filt2, enc, pay, sink, NULL);
 
-	gst_element_link_many(src, demux, NULL);
-	gst_element_link_many(pay, sink, NULL);
+	gst_element_link_many(src, filt, rate, filt2, enc, pay, sink, NULL);
 
 	/* Use network time */
 	setup_network_time();
